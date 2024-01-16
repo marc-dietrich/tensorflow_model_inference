@@ -256,6 +256,43 @@ def run_two_split_model(data, core_aff, type_):
 
     return acc_counter / len(x_test), exec_time, np.mean(latencies)
 
+def func1():
+    # run .tflite interpreter split
+    result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "interpreter")
+    print("multi-interpreter .tflite exec.time: ", exec_time)
+    print("multi-interpreter .tflite accuracy: ", accuracy)
+    print("multi-interpreter .tflite avg_latency: ", avg_latency)
+    # print("Result:", result[:10])
+
+def func2():
+    # run model layer split
+    result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "layers")
+    print("model layers split exec.time: ", exec_time)
+    print("model layers split accuracy: ", accuracy)
+    print("model layers split avg_latency: ", avg_latency)
+
+def func3():
+    # run full models .keras
+    acc, exec_time, avg_latency = run_two_split_model(data, 0, "keras")
+    print("full keras models accuracy: ", acc)
+    print("full keras models exec.time: ", exec_time)
+    print("full keras models avg_latencies: ", avg_latency)
+
+def func4():
+    # run full model_interpreters .tflite
+    acc, exec_time, avg_latency = run_two_split_model(data, 0, "tflite")
+    print("full tflite interpreters accuracy: ", acc)
+    print("full tflite interpreters exec.time: ", exec_time)
+    print("full tflite interpreters avg_latencies: ", avg_latency)
+
+def func5():
+    # run full models .keras (tf in-build predicts and evaluates)
+    print("use tensorflow inbuild predict function")
+    input_ = np.array([np.reshape(x, (32, 32, 3)) for x in data[0]])
+    inter_results = conv_base_model.predict(input_)
+    inter_results = np.reshape(inter_results, (len(input_), 1 * 1 * 512))
+    results = extension_model.evaluate(inter_results, data[1])
+
 
 if __name__ == "__main__":
     #os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -269,10 +306,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline Parallelism")
     parser.add_argument("-s", "--stages", type=int, help="Number of stages in the pipeline", required=True)
     parser.add_argument("-c", "--cores", nargs='+', type=int, help="List of cores for each stage", required=True)
+    parser.add_argument("-i", "--index", type=int, help="Index for certain benchmark", required=True)
     args = parser.parse_args()
 
     num_stages = args.stages
     cores = args.cores
+    i = args.index
 
     if len(cores) > num_stages:
         raise AttributeError("Too many cores passed .. do not provide more cores than stages!")
@@ -294,34 +333,5 @@ if __name__ == "__main__":
     ]
     '''
 
-    # run .tflite interpreter split
-    result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "interpreter")
-    print("multi-interpreter .tflite exec.time: ", exec_time)
-    print("multi-interpreter .tflite accuracy: ", accuracy)
-    print("multi-interpreter .tflite avg_latency: ", avg_latency)
-    # print("Result:", result[:10])
-
-    # run model layer split
-    result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "layers")
-    print("model layers split exec.time: ", exec_time)
-    print("model layers split accuracy: ", accuracy)
-    print("model layers split avg_latency: ", avg_latency)
-
-    # run full models .keras
-    acc, exec_time, avg_latency = run_two_split_model(data, 0, "keras")
-    print("full keras models accuracy: ", acc)
-    print("full keras models exec.time: ", exec_time)
-    print("full keras models avg_latencies: ", avg_latency)
-
-    # run full model_interpreters .tflite
-    acc, exec_time, avg_latency = run_two_split_model(data, 0, "tflite")
-    print("full tflite interpreters accuracy: ", acc)
-    print("full tflite interpreters exec.time: ", exec_time)
-    print("full tflite interpreters avg_latencies: ", avg_latency)
-
-    # run full models .keras (tf in-build predicts and evaluates)
-    print("use tensorflow inbuild predict function")
-    input_ = np.array([np.reshape(x, (32, 32, 3)) for x in data[0]])
-    inter_results = conv_base_model.predict(input_)
-    inter_results = np.reshape(inter_results, (len(input_), 1 * 1 * 512))
-    results = extension_model.evaluate(inter_results, data[1])
+    funcs = [func1, func2, func3, func4, func5]
+    funcs[i]()
