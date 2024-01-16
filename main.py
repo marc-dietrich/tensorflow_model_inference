@@ -258,9 +258,11 @@ def run_two_split_model(data, core_aff, type_):
 
 
 if __name__ == "__main__":
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-    os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+    #os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    #os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
+    #tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
+    print(tf.__version__)
 
     data = get_data()
 
