@@ -116,18 +116,15 @@ def assignment_worker(in_queue, out_queue, assignment, core_id, latencies, type_
             data = data * 2  # Example processing
             '''
             data, et = run_stage(stage, data, counter, type_)
-            ets[nr][counter] = et
-            counter += 1
-        counter = 0
+            latencies[stage * 10_000 + counter] = et
+        counter += 1
         out_queue.put(data)
-        for et, a in zip(ets, assignment):
-            latencies[a] = np.sum(et)
 
 
 def main(num_stages, assignments, data, type_):
     # Create queues for communication between stages
     queues = [multiprocessing.Queue() for _ in range(len(assignments) + 1)]
-    latencies = multiprocessing.Array('d', 23)
+    latencies = multiprocessing.Array('d', 10_000 * num_stages)
 
     # Create processes for each stage
     processes = [
@@ -172,7 +169,9 @@ def main(num_stages, assignments, data, type_):
         if np.argmax(result) == y:
             acc_counter += 1
 
-    avg_latency = np.mean(latencies)
+    latencies_ = [np.sum([latencies[stage * 10_000 + counter] for stage in range(num_stages)])
+                  for counter in range(10_000)]
+    avg_latency = np.mean(latencies_)
 
     return results, acc_counter / len(y_test), et, avg_latency
 
