@@ -2,6 +2,7 @@ import argparse
 import math
 import multiprocessing
 import os
+import signal
 import time
 
 import keras
@@ -9,6 +10,7 @@ import numpy as np
 import psutil
 import tensorflow as tf
 from tqdm import tqdm
+import subprocess
 
 
 def get_data():
@@ -334,4 +336,8 @@ if __name__ == "__main__":
     '''
 
     funcs = [func1, func2, func3, func4, func5]
+
+    pro = subprocess.run(["cpu-energy-meter -r"])
     funcs[i]()
+    os.killpg(os.getpgid(pro.pid), signal.SIGTERM)
+    print(pro)
