@@ -86,7 +86,7 @@ def run_stage(stage_idx, input, input_idx, type_):
         interpreter.invoke()
         output = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
     elif type_ == "layers":
-        output = layers[stage_idx](input, training=False)
+        output = layers[stage_idx](input)
     else:
         raise RuntimeError("only type 'interpreter' or 'layers' possible")
 
@@ -227,11 +227,11 @@ def run_two_split_model(data, core_aff, type_):
 
             if type_ == "keras":
 
-                output = conv_base_model(x, training=False)
+                output = conv_base_model(x)
 
                 output_reshaped = np.reshape(output, newshape=(1, 512))
 
-                final_output = extension_model(output_reshaped, training=False)
+                final_output = extension_model(output_reshaped)
             elif type_ == "tflite":
                 conv_base_interpreter.set_tensor(conv_base_interpreter.get_input_details()[0]["index"], x)
                 conv_base_interpreter.invoke()
