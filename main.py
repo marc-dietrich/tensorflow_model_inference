@@ -343,4 +343,5 @@ if __name__ == "__main__":
         [19, 20, 21, 22]
     ]
     '''
+    pyRAPL.setup()
     wrapper()
