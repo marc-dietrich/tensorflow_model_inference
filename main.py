@@ -6,7 +6,6 @@ import time
 import keras
 import numpy as np
 import psutil
-import pyRAPL
 import tensorflow as tf
 from tqdm import tqdm
 
@@ -299,7 +298,6 @@ def func5():
     results = extension_model.evaluate(inter_results, data[1])
 
 
-@pyRAPL.measureit
 def wrapper():
     funcs = [func1, func2, func3, func4, func5]
     funcs[i]()
@@ -343,5 +341,4 @@ if __name__ == "__main__":
         [19, 20, 21, 22]
     ]
     '''
-    pyRAPL.setup()
     wrapper()
