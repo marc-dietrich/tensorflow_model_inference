@@ -1,16 +1,14 @@
 import argparse
 import math
 import multiprocessing
-import os
-import signal
 import time
 
 import keras
 import numpy as np
 import psutil
+import pyRAPL
 import tensorflow as tf
 from tqdm import tqdm
-import subprocess
 
 
 def get_data():
@@ -101,7 +99,7 @@ def assignment_worker(in_queue, out_queue, assignment, core_id, latencies, type_
     # Set CPU affinity for this process
     st = time.time()
     psutil.Process().cpu_affinity([core_id])
-    #print("aff. time: ", time.time() - st)
+    # print("aff. time: ", time.time() - st)
 
     counter = 0
     ets = [[0 for _ in range(10_000)] for _ in assignment]
@@ -258,6 +256,7 @@ def run_two_split_model(data, core_aff, type_):
 
     return acc_counter / len(x_test), exec_time, np.mean(latencies)
 
+
 def func1():
     # run .tflite interpreter split
     result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "interpreter")
@@ -266,12 +265,14 @@ def func1():
     print("multi-interpreter .tflite avg_latency: ", avg_latency)
     # print("Result:", result[:10])
 
+
 def func2():
     # run model layer split
     result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "layers")
     print("model layers split exec.time: ", exec_time)
     print("model layers split accuracy: ", accuracy)
     print("model layers split avg_latency: ", avg_latency)
+
 
 def func3():
     # run full models .keras
@@ -280,12 +281,14 @@ def func3():
     print("full keras models exec.time: ", exec_time)
     print("full keras models avg_latencies: ", avg_latency)
 
+
 def func4():
     # run full model_interpreters .tflite
     acc, exec_time, avg_latency = run_two_split_model(data, 0, "tflite")
     print("full tflite interpreters accuracy: ", acc)
     print("full tflite interpreters exec.time: ", exec_time)
     print("full tflite interpreters avg_latencies: ", avg_latency)
+
 
 def func5():
     # run full models .keras (tf in-build predicts and evaluates)
@@ -296,10 +299,16 @@ def func5():
     results = extension_model.evaluate(inter_results, data[1])
 
 
+@pyRAPL.measureit
+def wrapper():
+    funcs = [func1, func2, func3, func4, func5]
+    funcs[i]()
+
+
 if __name__ == "__main__":
-    #os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-    #os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
-    #tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+    # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    # os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
+    # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
     print(tf.__version__)
 
@@ -334,10 +343,4 @@ if __name__ == "__main__":
         [19, 20, 21, 22]
     ]
     '''
-
-    funcs = [func1, func2, func3, func4, func5]
-
-    pro = subprocess.run(["cpu-energy-meter -r"])
-    funcs[i]()
-    os.killpg(os.getpgid(pro.pid), signal.SIGTERM)
-    print(pro)
+    wrapper()
