@@ -70,8 +70,9 @@ def run_main_script(ind):
     # Define the path to your shell script
     script_path = './measure.sh'
 
-    # List of parameters to pass to the script
-    params = ['0', '0', '0', '0']
+
+    # Convert the list of integers to a list of strings
+    params = [str(x) for x in ind]
 
     # Construct the command to run the shell script
     command = [script_path] + params
