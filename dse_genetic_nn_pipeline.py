@@ -1,5 +1,6 @@
 import csv
 import random
+import subprocess
 import time
 from collections import Counter
 
@@ -66,9 +67,27 @@ def ind_to_assignment(ind):
 
 
 def run_main_script(ind):
-    # assignment = ind_to_assignment(ind)
+    # Define the path to your shell script
+    script_path = './measure.sh'
 
-    return 0, 0
+    # List of parameters to pass to the script
+    params = ['0', '0', '0', '0']
+
+    # Construct the command to run the shell script
+    command = [script_path] + params
+
+    # Run the shell script and capture the output
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        # Access the output
+        script_output = result.stdout
+        print("Output from the script:")
+        print(script_output)
+    except subprocess.CalledProcessError as e:
+        print(f"Error: {e}")
+
+
+    return random.random(), random.random()
 
 
 # Define the evaluation function (replace with your problem's objectives)
