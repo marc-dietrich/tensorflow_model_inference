@@ -1,5 +1,6 @@
 import csv
 import random
+import re
 import subprocess
 import time
 from collections import Counter
@@ -70,7 +71,6 @@ def run_main_script(ind):
     # Define the path to your shell script
     script_path = './measure.sh'
 
-
     # Convert the list of integers to a list of strings
     params = [str(x) for x in ind]
 
@@ -82,13 +82,27 @@ def run_main_script(ind):
         result = subprocess.run(command, check=True, capture_output=True, text=True)
         # Access the output
         script_output = result.stdout
-        print("Output from the script:")
-        print(script_output)
+
+        # Define regular expressions to match the values
+        patterns = {
+            "exec_time": re.compile(r"exec\.time: (\d+\.\d+)"),
+            "avg_latency": re.compile(r"avg_latency: (\d+\.\d+)"),
+            "accuracy": re.compile(r"accuracy: (\d+\.\d+)"),
+        }
+
+        # Extract values using regular expressions and print
+        return_values = []
+        for idx, (key, pattern) in patterns.items():
+            match = pattern.search(script_output)
+            if match:
+                value = match.group(1)
+                #print(f"{key.capitalize().replace('_', ' ')}: {value}")
+                return_values += [value]
+
     except subprocess.CalledProcessError as e:
         print(f"Error: {e}")
 
-
-    return random.random(), random.random()
+    return tuple(return_values[:2])
 
 
 # Define the evaluation function (replace with your problem's objectives)
@@ -183,9 +197,10 @@ def sum_(ind):
 def none_func(ind1, ind2):
     return ind1, ind2
 
-def contains_consecutive_values(ind:list, core_indicies):
+
+def contains_consecutive_values(ind: list, core_indicies):
     # fill
-    idx_sublists = {c:[] for c in core_indicies}
+    idx_sublists = {c: [] for c in core_indicies}
     for idx in core_indicies:
         for stage_idx, core_idx in enumerate(ind):
             if idx == core_idx:
@@ -200,6 +215,7 @@ def contains_consecutive_values(ind:list, core_indicies):
                 return False, (core_idx, mapped_stages)
             current += 1
     return True, None
+
 
 random.seed(42)
 
@@ -240,8 +256,8 @@ while time.time() - st < 10:  # 60*60*24: # run 1 day
 
 print(counter)
 print("time: ", time.time() - st)
-#print(hof.keys)
-#print(hof.items)
+# print(hof.keys)
+# print(hof.items)
 
 # Define the file name
 csv_file_name = './outputs/pareto_solutions.csv'
