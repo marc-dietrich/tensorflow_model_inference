@@ -20,8 +20,16 @@ y_train = y_train[:-2000]
 # for d in datas:
 #    print(np.shape(d))
 
+np.savez("non_pp_train", x_train, y_train)
+np.savez("non_pp_test", x_test, y_test)
+np.savez("non_pp_val", x_val, y_val)
+
+quit()
+
 x_train, x_test, x_val = preprocess_input(x_train), preprocess_input(x_test), preprocess_input(x_val)
 
 np.savez("train", x_train, y_train)
 np.savez("test", x_test, y_test)
 np.savez("val", x_val, y_val)
+
+

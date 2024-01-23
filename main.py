@@ -1,35 +1,40 @@
 import argparse
-import math
 import multiprocessing
 import time
 
-import keras
 import numpy as np
 import psutil
 import tensorflow as tf
 from tqdm import tqdm
 
+NUM_TEST_DATA = 1000
 
-def get_data():
-    x_train = np.load("./mnist_dataset/train.npz")["arr_0"]
-    y_train = np.load("./mnist_dataset/train.npz")["arr_1"]
+def get_data(model):
+    if model == "VGG":
+        x_train = np.load("./mnist_dataset/train.npz")["arr_0"]
+        y_train = np.load("./mnist_dataset/train.npz")["arr_1"]
 
-    x_test = np.load("./mnist_dataset/test.npz")["arr_0"]
-    y_test = np.load("./mnist_dataset/test.npz")["arr_1"]
+        x_test = np.load("./mnist_dataset/test.npz")["arr_0"]
+        y_test = np.load("./mnist_dataset/test.npz")["arr_1"]
 
-    x_val = np.load("./mnist_dataset/val.npz")["arr_0"]
-    y_val = np.load("./mnist_dataset/val.npz")["arr_1"]
+        x_val = np.load("./mnist_dataset/val.npz")["arr_0"]
+        y_val = np.load("./mnist_dataset/val.npz")["arr_1"]
 
-    # print(x_train, y_train)
-    # return (x_train, y_train), (x_test, y_test), (x_val, y_val)
+    elif model == "ALEX_NET":
+        x_train = np.load("./mnist_dataset/non_pp_train.npz")["arr_0"]
+        y_train = np.load("./mnist_dataset/non_pp_train.npz")["arr_1"]
 
-    # x_test = np.array(list(map(lambda x: np.expand_dims(x, axis=0), x_test)))
+        x_test = np.load("./mnist_dataset/non_pp_test.npz")["arr_0"]
+        y_test = np.load("./mnist_dataset/non_pp_test.npz")["arr_1"]
 
-    # return x_test[:1000], y_test[:1000]
+        x_val = np.load("./mnist_dataset/non_pp_val.npz")["arr_0"]
+        y_val = np.load("./mnist_dataset/non_pp_val.npz")["arr_1"]
+    else:
+        raise RuntimeError("wrong model")
 
     x_test = [x[None, :, :, :] for x in x_test]
 
-    return x_test, y_test
+    return x_test[:NUM_TEST_DATA], y_test[:NUM_TEST_DATA]
 
 
 def get_interpreters(partial_model_dir_path, model_name, size):
@@ -41,67 +46,61 @@ def get_interpreters(partial_model_dir_path, model_name, size):
     return interpreters
 
 
-interpreters = get_interpreters(partial_model_dir_path="vgg_partial_model/vgg_conv_base_model",
-                                model_name="conv_base_model",
-                                size=19
-                                )
-interpreters += get_interpreters(partial_model_dir_path="vgg_partial_model/vgg_extension_model",
-                                 model_name="extension_model",
-                                 size=4
-                                 )
-
-# layers = conv_base_model.layers
-
-
-'''
-for interpreter in interpreters:
-    print(interpreter.get_input_details())
-    print(interpreter.get_output_details())
-    print("")
-'''
-
-conv_base_model: keras.models.Sequential = keras.models.load_model(
-    "vgg_partial_model/vgg_conv_base_model/conv_base_model.keras")
-extension_model: keras.models.Sequential = keras.models.load_model(
-    "./vgg_partial_model/vgg_extension_model/extension_model.keras")
-layers = conv_base_model.layers
-layers += extension_model.layers
+def init_interpreters():
+    # if model == "VGG":
+    interpreters = get_interpreters(partial_model_dir_path="vgg_partial_model/vgg_conv_base_model",
+                                    model_name="conv_base_model",
+                                    size=19
+                                    )
+    interpreters += get_interpreters(partial_model_dir_path="vgg_partial_model/vgg_extension_model",
+                                     model_name="extension_model",
+                                     size=4
+                                     )
+    return interpreters
 
 
-def run_stage(stage_idx, input, input_idx, type_):
-    if type_ == "interpreter":
-        interpreter = interpreters[stage_idx]
+interpreters = init_interpreters()
 
-    # print(np.shape(input))
-    # print(interpreters.index(interpreter))
-    # print(interpreter.get_input_details())
 
+def invoke_vgg_model_interpreters(stage, input_):
+    interpreter = interpreters[stage]
     st = time.time()
-    if stage_idx == 19:
-        input = np.reshape(input, newshape=(1, 512))
-
-    if type_ == "interpreter":
-        interpreter.set_tensor(interpreter.get_input_details()[0]["index"], input)
-        interpreter.invoke()
-        output = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
-    elif type_ == "layers":
-        output = layers[stage_idx](input)
-    else:
-        raise RuntimeError("only type 'interpreter' or 'layers' possible")
-
+    if stage == 19:
+        input_ = np.reshape(input_, newshape=(1, 512))
+    interpreter.set_tensor(interpreter.get_input_details()[0]["index"], input_)
+    interpreter.invoke()
+    output = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
     et = time.time() - st
     return output, et
 
 
+def invoke_alex_net_model_interpreters(stage, input_, interpreter):
+    st = time.time()
+    interpreter.set_tensor(interpreter.get_input_details()[0]["index"], input_)
+    interpreter.invoke()
+    output = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
+    et = time.time() - st
+    return output, et
+
+
+interpreter_invoke_funcs = {
+    "VGG": invoke_vgg_model_interpreters,
+    "ALEX_NET": invoke_alex_net_model_interpreters,
+}
+
+
+def run_stage(stage_idx, input_, model):
+    return interpreter_invoke_funcs[model](stage_idx, input_)
+
+
 # Function to simulate a pipeline stage
-def assignment_worker(in_queue, out_queue, assignment, core_id, latencies, type_):
+def assignment_worker(in_queue, out_queue, assignment, core_id, latencies, model):
     # Set CPU affinity for this process
     st = time.time()
     psutil.Process().cpu_affinity([core_id])
     # print("aff. time: ", time.time() - st)
 
     counter = 0
-    ets = [[0 for _ in range(10_000)] for _ in assignment]
     while True:
         data = in_queue.get()
         if data is None:
@@ -115,21 +114,33 @@ def assignment_worker(in_queue, out_queue, assignment, core_id, latencies, type_
             # otherwise ... using single thread is faster than piepline parallelism (probably due to memory overhead)
             data = data * 2  # Example processing
             '''
-            data, et = run_stage(stage, data, counter, type_)
-            latencies[stage * 10_000 + counter] = et
+            #print(stage, data, model)
+            #print(np.shape(data))
+            data, et = run_stage(stage, data, model)
+            latencies[stage * NUM_TEST_DATA + counter] = et
         counter += 1
         out_queue.put(data)
 
 
-def main(num_stages, assignments, data, type_):
+def main(data, assignments, model):
+    if model == "VGG":
+        num_stages = 23
+    elif model == "ALEX_NET":
+        num_stages = 21
+    else:
+        raise RuntimeError("INVALID MODEL NAME: ", model)
+
     # Create queues for communication between stages
     queues = [multiprocessing.Queue() for _ in range(len(assignments) + 1)]
-    latencies = multiprocessing.Array('d', 10_000 * num_stages)
+    latencies = multiprocessing.Array('d', NUM_TEST_DATA * num_stages)
+
+    print(assignments)
 
     # Create processes for each stage
     processes = [
         multiprocessing.Process(target=assignment_worker,
-                                args=(queues[idx], queues[idx + 1], assignment, core_id, latencies, type_))
+                                args=(
+                                    queues[idx], queues[idx + 1], assignment, core_id, latencies, model))
         for idx, (core_id, assignment) in enumerate(assignments.items())
     ]
 
@@ -169,35 +180,14 @@ def main(num_stages, assignments, data, type_):
         if np.argmax(result) == y:
             acc_counter += 1
 
-    latencies_ = [np.sum([latencies[stage * 10_000 + counter] for stage in range(num_stages)])
-                  for counter in range(10_000)]
+    latencies_ = [np.sum([latencies[stage * NUM_TEST_DATA + counter] for stage in range(num_stages)])
+                  for counter in range(NUM_TEST_DATA)]
     avg_latency = np.mean(latencies_)
 
     return results, acc_counter / len(y_test), et, avg_latency
 
 
-def get_assignments(num_stages, cores):
-    num_cores = len(cores)
-    assignments = {}
-    counter = []
-    stages_per_cores = num_stages / num_cores
-    floor_ = math.floor(stages_per_cores)
-    for _ in range(num_cores):
-        counter.append(floor_)
-    rest = num_stages - (floor_ * num_cores)
-    for core_idx in range(rest):
-        counter[core_idx] += 1
-
-    start = 0
-    for count, core_id in zip(counter, cores):
-        assignments[core_id] = list(range(start, start + count))
-        start += count
-
-    print(assignments)
-
-    return assignments
-
-
+'''
 def run_two_split_model(data, core_aff, type_):
     psutil.Process().cpu_affinity([core_aff])
 
@@ -253,17 +243,19 @@ def run_two_split_model(data, core_aff, type_):
             acc_counter += 1
 
     return acc_counter / len(x_test), exec_time, np.mean(latencies)
+'''
 
 
-def func1():
+def func1(data, assignments, model):
     # run .tflite interpreter split
-    result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "interpreter")
+    result, accuracy, exec_time, avg_latency = main(data, assignments, model)
     print("multi-interpreter .tflite exec.time: ", exec_time)
     print("multi-interpreter .tflite accuracy: ", accuracy)
     print("multi-interpreter .tflite avg_latency: ", avg_latency)
     # print("Result:", result[:10])
 
 
+'''
 def func2():
     # run model layer split
     result, accuracy, exec_time, avg_latency = main(num_stages, assignments, data, "layers")
@@ -295,11 +287,37 @@ def func5():
     inter_results = conv_base_model.predict(input_)
     inter_results = np.reshape(inter_results, (len(input_), 1 * 1 * 512))
     results = extension_model.evaluate(inter_results, data[1])
+'''
 
 
-def wrapper():
-    funcs = [func1, func2, func3, func4, func5]
-    funcs[i]()
+def wrapper(data, assignment, model):
+    # funcs = [func1, func2, func3, func4, func5]
+    # funcs[i]()
+    func1(data, assignment, model)
+
+
+def get_active_core_range(ind, core_id, num_stages):
+    starting = -1
+    ending = -1
+    for stage_idx, core_idx in enumerate(ind):
+        if core_idx == core_id and starting < 0:
+            starting = stage_idx
+        if core_idx != core_id and starting >= 0 and ending < 0:
+            ending = stage_idx - 1
+    if starting == -1:
+        starting = num_stages - 1
+    if ending == -1:
+        ending = num_stages - 1
+    return starting, ending
+
+
+def ind_to_assignment(ind):
+    assignment = {}
+    for core_id in ind:
+        starting, ending = get_active_core_range(ind, core_id, len(ind))
+        assignment[core_id] = list(range(starting, ending + 1))
+
+    return assignment
 
 
 if __name__ == "__main__":
@@ -307,37 +325,22 @@ if __name__ == "__main__":
     # os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
     # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
-    print(tf.__version__)
-
-    data = get_data()
+    # print(tf.__version__)
 
     parser = argparse.ArgumentParser(description="Pipeline Parallelism")
-    parser.add_argument("-s", "--stages", type=int, help="Number of stages in the pipeline", required=True)
-    parser.add_argument("-c", "--cores", nargs='+', type=int, help="List of cores for each stage", required=True)
+    parser.add_argument("-ind", "--individual", nargs='+', type=int, help="Assignment of cores to stages", required=True)
     parser.add_argument("-i", "--index", type=int, help="Index for certain benchmark", required=True)
+    parser.add_argument("-m", "--model", type=str, help="Model (VGG OR ALEX_NET)", required=True)
     args = parser.parse_args()
 
-    num_stages = args.stages
-    cores = args.cores
+    individual = args.individual
     i = args.index
+    model = args.model
 
-    if len(cores) > num_stages:
-        raise AttributeError("Too many cores passed .. do not provide more cores than stages!")
+    assert len(individual) == 23
 
-    if len(cores) != num_stages:
-        print("Amount of cores and amount of stages differ --> assigning multiple stages/threads to on core!")
+    data = get_data(model)
 
-    assignments = get_assignments(num_stages, cores)
-    '''
-    assignments = [
-        [0, 1, 2, 3, 4, 5],
-        [6, 7, 8, 9, 10, 11],
-        [12],
-        [13, 14],
-        [15],
-        [16],
-        [17, 18],
-        [19, 20, 21, 22]
-    ]
-    '''
-    wrapper()
+    assignment = ind_to_assignment(individual)
+
+    wrapper(data, assignment, model)
