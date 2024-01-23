@@ -9,7 +9,7 @@ import numpy as np
 from deap import base, creator, tools, algorithms
 
 # Define the problem
-creator.create("Fitness", base.Fitness, weights=(-1.0, -1.0))
+creator.create("Fitness", base.Fitness, weights=(-1.0, -1.0, -1.0, -1.0))
 creator.create("Individual", list, fitness=creator.Fitness)
 
 memoization_cache = {}
@@ -83,19 +83,26 @@ def run_main_script(ind):
         # Access the output
         script_output = result.stdout
 
+        #print(script_output)
+
         # Initialize a list to store the values
         values = []
 
         # Extract values using split and convert to float
-        for line in script_output.split('\n'):
-            if line.strip():
-                key, value = map(str.strip, line.split(":"))
+        for line in script_output.split("\n"):
+            if "cpu0_package_joules" in line or "cpu0_core_joules" in line:
+                value = line.split("=")[-1].strip()
                 values.append(float(value))
+            if not ":" in line:
+                continue
+            value = line.split(":")[-1].strip()
+            values.append(float(value))
 
     except subprocess.CalledProcessError as e:
         print(f"Error: {e}")
 
-    return tuple(value[:2])
+    print(values)
+    return tuple(values)
 
 
 # Define the evaluation function (replace with your problem's objectives)
@@ -105,11 +112,11 @@ def evaluate(individual):
     if tup in memoization_cache:
         return memoization_cache[tup]
 
-    exec_time, energy = run_main_script(individual)
+    exec_time, accuracy, latency, package_energy, cpu_energy  = run_main_script(individual)
 
-    memoization_cache[tup] = (exec_time, energy)
+    memoization_cache[tup] = (exec_time, latency, package_energy, cpu_energy)
 
-    return exec_time, energy
+    return exec_time, latency, package_energy, cpu_energy
 
 
 def swap_mutation(individual):
@@ -221,7 +228,7 @@ toolbox.register("select", tools.selNSGA2)  # NSGA-II selection
 # Create an initial population
 num_stages = 23
 amount = 100
-num_cores = 32
+num_cores = 8
 population = create_population(amount=amount, num_stages=num_stages, num_cores=num_cores)
 for ind in population:
     b, v = contains_consecutive_values(ind, list(range(num_cores)))
@@ -237,7 +244,7 @@ for ind in population:
 hof = tools.ParetoFront()
 st = time.time()
 counter = 0
-while time.time() - st < 10:  # 60*60*24: # run 1 day
+while time.time() - st < 60*60*(24 + 18):  # 60*60*24: # run 1 day
     counter += 1
     population, logbook = algorithms.eaMuPlusLambda(population, toolbox, mu=100, lambda_=20, cxpb=0.01, mutpb=.99,
                                                     ngen=5,
@@ -263,7 +270,7 @@ with open(csv_file_name, 'w', newline='') as csvfile:
     csv_writer = csv.writer(csvfile)
 
     # Write header
-    header = ['exec_time', 'energy_consumption', 'Solutions']  # Adjust as needed
+    header = ['exec_time', "avg_latency", 'package_energy', 'cpu_energy', 'Solutions']  # Adjust as needed
     csv_writer.writerow(header)
 
     # Write solutions and fitness values

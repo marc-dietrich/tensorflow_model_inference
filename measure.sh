@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Start cpu-energy-meter in the background
-cpu-energy-meter &
+cpu-energy-meter -r &
 PID=$!
 
 # Run the ./app with the passed integer parameter

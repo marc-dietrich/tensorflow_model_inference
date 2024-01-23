@@ -134,7 +134,7 @@ def main(data, assignments, model):
     queues = [multiprocessing.Queue() for _ in range(len(assignments) + 1)]
     latencies = multiprocessing.Array('d', NUM_TEST_DATA * num_stages)
 
-    print(assignments)
+    #print(assignments)
 
     # Create processes for each stage
     processes = [
