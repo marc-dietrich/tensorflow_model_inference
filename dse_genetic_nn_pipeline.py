@@ -83,26 +83,19 @@ def run_main_script(ind):
         # Access the output
         script_output = result.stdout
 
-        # Define regular expressions to match the values
-        patterns = {
-            "exec_time": re.compile(r"exec\.time: (\d+\.\d+)"),
-            "avg_latency": re.compile(r"avg_latency: (\d+\.\d+)"),
-            "accuracy": re.compile(r"accuracy: (\d+\.\d+)"),
-        }
+        # Initialize a list to store the values
+        values = []
 
-        # Extract values using regular expressions and print
-        return_values = []
-        for idx, (key, pattern) in patterns.items():
-            match = pattern.search(script_output)
-            if match:
-                value = match.group(1)
-                #print(f"{key.capitalize().replace('_', ' ')}: {value}")
-                return_values += [value]
+        # Extract values using split and convert to float
+        for line in script_output.split('\n'):
+            if line.strip():
+                key, value = map(str.strip, line.split(":"))
+                values.append(float(value))
 
     except subprocess.CalledProcessError as e:
         print(f"Error: {e}")
 
-    return tuple(return_values[:2])
+    return tuple(value[:2])
 
 
 # Define the evaluation function (replace with your problem's objectives)
