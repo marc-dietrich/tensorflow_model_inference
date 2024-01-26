@@ -1,12 +1,14 @@
 import csv
+import math
 import random
-import re
 import subprocess
 import time
 from collections import Counter
+from datetime import datetime
 
 import numpy as np
 from deap import base, creator, tools, algorithms
+from ordered_set import OrderedSet
 
 # Define the problem
 creator.create("Fitness", base.Fitness, weights=(-1.0, -1.0, -1.0, -1.0))
@@ -57,16 +59,6 @@ def create_population(amount, num_cores, num_stages):
     return population
 
 
-def ind_to_assignment(ind):
-    assignment = {}
-    for core_id in ind:
-        starting, ending = get_active_core_range(ind, core_id)
-        assignment[core_id] = list(range(starting, ending + 1))
-
-    print(ind)
-    print(assignment)
-
-
 def run_main_script(ind):
     # Define the path to your shell script
     script_path = './measure.sh'
@@ -83,7 +75,7 @@ def run_main_script(ind):
         # Access the output
         script_output = result.stdout
 
-        #print(script_output)
+        # print(script_output)
 
         # Initialize a list to store the values
         values = []
@@ -112,75 +104,210 @@ def evaluate(individual):
     if tup in memoization_cache:
         return memoization_cache[tup]
 
-    exec_time, accuracy, latency, package_energy, cpu_energy  = run_main_script(individual)
+    exec_time, accuracy, latency, package_energy, cpu_energy = run_main_script(individual)
+    #exec_time, accuracy, latency, package_energy, cpu_energy = (
+    #    random.random(), random.random(), random.random(), random.random(), random.random())
 
     memoization_cache[tup] = (exec_time, latency, package_energy, cpu_energy)
 
     return exec_time, latency, package_energy, cpu_energy
 
 
-def swap_mutation(individual):
-    i, j = random.sample(range(len(individual)), 2)
-    individual[i], individual[j] = individual[j], individual[i]
-    return individual
+def consecutive_order_crossover(ind1, ind2):
+    pass
 
 
-def get_active_core_range(ind, core_id):
-    starting = -1
-    ending = -1
-    for stage_idx, core_idx in enumerate(ind):
-        if core_idx == core_id and starting < 0:
-            starting = stage_idx
-        if core_idx != core_id and starting >= 0 and ending < 0:
-            ending = stage_idx - 1
-    if starting == -1:
-        starting = num_stages - 1
-    if ending == -1:
+def get_fixed_offspring_part(cutoff_point, ind):
+    child = ind[:cutoff_point]
+    child_offset = 0
+    continuation_element = child[-1]
+    for core_id in ind[cutoff_point:]:
+        if core_id == continuation_element:
+            child.append(core_id)
+            child_offset += 1
+    return child, child_offset
+
+
+def extend_offspring(offspring, parent, x_parent, cutoff_point, offset, x_offset):
+    # collect all cores, used on 2nd parts
+    used_cores_in_second_parts = OrderedSet(x_parent[cutoff_point + x_offset:] + parent[cutoff_point + offset:])
+    #print("collection of all cores in 2nd parts: ", used_cores_in_second_parts)
+
+    # focus now one 1 child:
+    # delete cores, that are already used on corresponding fixed-child-part
+    used_cores_in_second_parts -= OrderedSet(offspring)
+    #print("filtered collection of cores in 2nd parts: ", used_cores_in_second_parts)
+
+    # receive pattern of opposite parent
+    # assume entries in counter are ordered by appearances in the list
+    collected_appearances = {}
+    for core_id in x_parent[cutoff_point + x_offset:]:
+        if core_id not in collected_appearances:
+            collected_appearances[core_id] = 1
+        else:
+            collected_appearances[core_id] += 1
+    #print("collected appearances: ", collected_appearances)
+
+    # insert cores in collected order and cardinalities of received pattern
+    # not sure whether order is maintained, of iteration is done with .values() --> .items() should maintain it
+    counter = 0
+    for _, cardinality in collected_appearances.items():
+        for _ in range(cardinality):
+            if len(offspring) == num_stages:
+                break
+            if counter == len(used_cores_in_second_parts):
+                break
+            offspring += [used_cores_in_second_parts[counter]]
+            counter += 1
+
+
+    # fill offspring if needed
+    while len(offspring) < num_stages:
+        # check if cores still available
+        unused_cores = list(set(range(num_cores)) - set(offspring))
+        if unused_cores:
+            new_core = random.choice(unused_cores)
+        else:
+            # num_stages is the upper ceiling of required additional values
+            new_core = random.randint(num_cores, num_stages)
+        offspring.append(new_core)
+
+    return offspring
+
+
+def custom_crossover(ind1, ind2):
+    # get cutoff point
+    cutoff_point = random.randint(1, len(ind1) - 1)
+
+    # get fixed part of childs # offsets
+    offspring_1, offset_1 = get_fixed_offspring_part(cutoff_point, ind1)
+    offspring_2, offset_2 = get_fixed_offspring_part(cutoff_point, ind2)
+
+    #print("offsets: ", offset_1, offset_2, "\n")
+
+    offspring_1 = extend_offspring(offspring=offspring_1,
+                                   parent=ind1,
+                                   x_parent=ind2,
+                                   cutoff_point=cutoff_point,
+                                   offset=offset_1,
+                                   x_offset=offset_2)
+
+
+    offspring_2 = extend_offspring(offspring=offspring_2,
+                                   parent=ind2,
+                                   x_parent=ind1,
+                                   cutoff_point=cutoff_point,
+                                   offset=offset_2,
+                                   x_offset=offset_1)
+
+    offspring1 = creator.Individual()
+    offspring2 = creator.Individual()
+
+    for e1, e2 in zip(offspring_1, offspring_2):
+        offspring1.append(e1)
+        offspring2.append(e2)
+
+    return offspring1, offspring2
+
+def get_group_ranges(ind):
+    ranges = {
+        core_id: None for core_id in range(num_cores)
+    }
+    for core_id in range(num_cores):
+        starting = 0
+        for idx in ind:
+            if core_id == idx:
+                ranges[core_id] = [starting, 0]
+                break
+            starting += 1
+    ind.reverse()
+    for core_id in range(num_cores - 1, -1, -1):
         ending = num_stages - 1
-    return starting, ending
+        for idx in ind:
+            if core_id == idx:
+                ranges[core_id][1] = ending
+                break
+            ending -= 1
+    ind.reverse()
+    return ranges
 
 
-def shift_core_delete(ind):
-    rdm_core_idx = random.randint(0, num_cores - 1)
-    starting, ending = get_active_core_range(ind, rdm_core_idx)
-    delete_idx = starting
-    if starting % (num_stages - 1) == 0:
-        delete_idx = ending
+# replace wit unused core
+def mut_replace_core_group(ind):
+    ranges = get_group_ranges(ind)
+    used_cores = [core_id for core_id in range(num_cores) if ranges[core_id]]
 
-    if delete_idx == 0:
-        ind[delete_idx] = ind[1]
-    elif delete_idx == num_stages - 1:
-        ind[delete_idx] = ind[-2]
-    else:
-        ind[delete_idx] = ind[delete_idx - 1]
+    if len(used_cores) == num_cores:  # no core to replace with available
+        return ind
+
+    core_to_replace = random.choice(used_cores)
+    unused_cores = [core_id for core_id in range(num_cores) if not ranges[core_id]]
+    core_to_replace_with = random.choice(unused_cores)
+
+    for idx in range(ranges[core_to_replace][0], ranges[core_to_replace][1] + 1):
+        ind[idx] = core_to_replace_with
 
     return ind
 
 
-def shift_core_add(ind):
-    c = Counter(ind)
-    if len(c) == num_cores:
-        return ind  # no free cores
+# split used group and replace by unused core if possible
+def mut_split_group(ind):
+    ranges = get_group_ranges(ind)
+    used_cores = [core_id for core_id in range(num_cores) if ranges[core_id]]
 
-    new_core = random.choice(
-        list({core_id for core_id in range(num_cores)} - c.keys())
-    )
-    rdm_core_idx = random.randint(0, num_cores - 1)
-    starting, ending = get_active_core_range(ind, rdm_core_idx)
-    delete_idx = starting
-    if starting % (num_stages - 1) == 0:
-        delete_idx = ending
-    ind[delete_idx] = new_core
+    if len(used_cores) == num_cores:  # no core to replace with available
+        return ind
+
+    core_group_to_split = random.choice(used_cores)
+    unused_cores = [core_id for core_id in range(num_cores) if not ranges[core_id]]
+    core_to_introduce = random.choice(unused_cores)
+
+    # starting = random.randint(ranges[core_group_to_split], ranges[core_group_to_split] + 1) maybe random also possible
+    new_starting = math.floor(
+        (ranges[core_group_to_split][0] + ranges[core_group_to_split][1] + 1) / 2
+    )  # if core was just used once, in 1 stage, it will be just replaced
+
+    for idx in range(new_starting, ranges[core_group_to_split][1] + 1):
+        ind[idx] = core_to_introduce
+
+    return ind
+
+
+def mut_merge_groups(ind):
+    dominant_core = random.choice(ind)
+    merge_options = [-1, 1]
+    if ind.index(dominant_core) == 0:  # first core
+        # exclude merge-option with predecessor
+        merge_options.remove(-1)
+    ind.reverse()
+    if ind.index(dominant_core) == 0:
+        # exclude merge-option with successor
+        merge_options.remove(1)
+    ind.reverse()
+    if not merge_options:
+        # print(ind)
+        # print("unforeseen result .. returning individual")
+        return ind
+    merge_decision = random.choice(merge_options)
+    if merge_decision == -1:
+        dom_core_idx = ind.index(dominant_core)
+        core_to_merge = ind[dom_core_idx - 1]
+    else:  # merge decision = 1
+        ind.reverse()
+        dom_core_idx = ind.index(dominant_core)
+        core_to_merge = ind[dom_core_idx - 1]
+        ind.reverse()
+    ranges = get_group_ranges(ind)
+    for core_id in range(ranges[core_to_merge][0], ranges[core_to_merge][1] + 1):
+        ind[core_id] = dominant_core
     return ind
 
 
 def mutate(ind):
-    # todo: other mutations maybe:
-    # add core usage --> also balance usage
-
     mutations = [
-        shift_core_add,
-        shift_core_delete
+        mut_replace_core_group,
+        mut_split_group,
+        mut_merge_groups
     ]
 
     ind = random.choice(mutations)(ind)
@@ -214,6 +341,10 @@ def contains_consecutive_values(ind: list, core_indicies):
             if not current + 1 == mapped_stage:
                 return False, (core_idx, mapped_stages)
             current += 1
+
+    for idx in ind:
+        if idx not in list(range(num_cores)):
+            return False, ind
     return True, None
 
 
@@ -221,15 +352,16 @@ random.seed(42)
 
 toolbox = base.Toolbox()
 toolbox.register("evaluate", evaluate)
-toolbox.register("mate", none_func)  # Blend crossover
+toolbox.register("mate", custom_crossover)
 toolbox.register("mutate", mutate)  # Gaussian mutation
 toolbox.register("select", tools.selNSGA2)  # NSGA-II selection
 
 # Create an initial population
 num_stages = 23
 amount = 100
-num_cores = 8
+num_cores = 32
 population = create_population(amount=amount, num_stages=num_stages, num_cores=num_cores)
+
 for ind in population:
     b, v = contains_consecutive_values(ind, list(range(num_cores)))
     if not b:
@@ -244,7 +376,7 @@ for ind in population:
 hof = tools.ParetoFront()
 st = time.time()
 counter = 0
-while time.time() - st < 60*60*(24 + 18):  # 60*60*24: # run 1 day
+while time.time() - st < 10:  # 60 * 60 * (24 + 18):  # 60*60*24: # run 1 day
     counter += 1
     population, logbook = algorithms.eaMuPlusLambda(population, toolbox, mu=100, lambda_=20, cxpb=0.01, mutpb=.99,
                                                     ngen=5,
@@ -254,18 +386,20 @@ while time.time() - st < 60*60*(24 + 18):  # 60*60*24: # run 1 day
         if not b:
             print(v)
 
+
 print(counter)
+#for ind in population[:10]:
+#    print(ind)
 print("time: ", time.time() - st)
 # print(hof.keys)
 # print(hof.items)
 
 # Define the file name
-csv_file_name = './outputs/pareto_solutions.csv'
-
-ind_to_assignment(hof.items[0])
+csv_file_name = './outputs/pareto_solutions'
 
 # Open the CSV file in write mode with a semicolon as the separator
-with open(csv_file_name, 'w', newline='') as csvfile:
+timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+with open(f"{csv_file_name}_{timestamp}.csv", 'w', newline='') as csvfile:
     # Create a CSV writer object with semicolon as the delimiter
     csv_writer = csv.writer(csvfile)
 

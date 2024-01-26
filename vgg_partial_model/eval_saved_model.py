@@ -21,10 +21,10 @@ ext_model = tf.keras.models.load_model("vgg_extension_model/extension_model.kera
 (x_train, y_train), (x_test, y_test), (x_val, y_val) = get_data()
 
 
-inter_results = base_model.predict(x_test)
-inter_results = np.reshape(inter_results, (len(x_test), 1 * 1 * 512))
+inter_results = base_model.predict(x_test[:1000])
+inter_results = np.reshape(inter_results, (1000, 1 * 1 * 512))
 
-results = ext_model.evaluate(inter_results, y_test)
+results = ext_model.evaluate(inter_results, y_test[:1000])
 
 #final_results = ext_model.predict(inter_results)
 #print(final_results, y_test)
