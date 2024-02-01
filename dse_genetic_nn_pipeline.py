@@ -1,9 +1,7 @@
 import csv
-import math
 import random
 import subprocess
 import time
-from collections import Counter
 from datetime import datetime
 
 import numpy as np
@@ -105,7 +103,7 @@ def evaluate(individual):
         return memoization_cache[tup]
 
     exec_time, accuracy, latency, package_energy, cpu_energy = run_main_script(individual)
-    #exec_time, accuracy, latency, package_energy, cpu_energy = (
+    # exec_time, accuracy, latency, package_energy, cpu_energy = (
     #    random.random(), random.random(), random.random(), random.random(), random.random())
 
     memoization_cache[tup] = (exec_time, latency, package_energy, cpu_energy)
@@ -128,46 +126,46 @@ def get_fixed_offspring_part(cutoff_point, ind):
     return child, child_offset
 
 
-def extend_offspring(offspring, parent, x_parent, cutoff_point, offset, x_offset):
-    # collect all cores, used on 2nd parts
-    used_cores_in_second_parts = OrderedSet(x_parent[cutoff_point + x_offset:] + parent[cutoff_point + offset:])
-    #print("collection of all cores in 2nd parts: ", used_cores_in_second_parts)
+def extend_offspring(offspring, x_parent, cutoff_point, x_offset):
+    # collect all cores, used in x_parent: starting to collect from cutoff-point and then iter over x_parent
+    used_cores_in_x_parent = OrderedSet(x_parent[cutoff_point + x_offset:] + x_parent[:cutoff_point + x_offset])
+    # print("collection of all cores in 2nd parts: ", used_cores_in_second_parts)
 
     # focus now one 1 child:
     # delete cores, that are already used on corresponding fixed-child-part
-    used_cores_in_second_parts -= OrderedSet(offspring)
-    #print("filtered collection of cores in 2nd parts: ", used_cores_in_second_parts)
+    used_cores_in_x_parent -= OrderedSet(offspring)
+    # print("filtered collection of cores in 2nd parts: ", used_cores_in_second_parts)
 
     # receive pattern of opposite parent
-    # assume entries in counter are ordered by appearances in the list
     collected_appearances = {}
     for core_id in x_parent[cutoff_point + x_offset:]:
         if core_id not in collected_appearances:
             collected_appearances[core_id] = 1
         else:
             collected_appearances[core_id] += 1
-    #print("collected appearances: ", collected_appearances)
+    # print("collected appearances: ", collected_appearances)
 
     # insert cores in collected order and cardinalities of received pattern
-    # not sure whether order is maintained, of iteration is done with .values() --> .items() should maintain it
+    # not sure whether order is maintained, if iteration is done with .values() --> .items() should maintain it
     counter = 0
     for _, cardinality in collected_appearances.items():
         for _ in range(cardinality):
             if len(offspring) == num_stages:
                 break
-            if counter == len(used_cores_in_second_parts):
+            if counter == len(used_cores_in_x_parent):
                 break
-            offspring += [used_cores_in_second_parts[counter]]
+            offspring += [used_cores_in_x_parent[counter]]
             counter += 1
-
 
     # fill offspring if needed
     while len(offspring) < num_stages:
         # check if cores still available
         unused_cores = list(set(range(num_cores)) - set(offspring))
         if unused_cores:
+            # used existing-unused core
             new_core = random.choice(unused_cores)
         else:
+            # used artificial placeholder-core_id
             # num_stages is the upper ceiling of required additional values
             new_core = random.randint(num_cores, num_stages)
         offspring.append(new_core)
@@ -183,21 +181,16 @@ def custom_crossover(ind1, ind2):
     offspring_1, offset_1 = get_fixed_offspring_part(cutoff_point, ind1)
     offspring_2, offset_2 = get_fixed_offspring_part(cutoff_point, ind2)
 
-    #print("offsets: ", offset_1, offset_2, "\n")
+    # print("offsets: ", offset_1, offset_2, "\n")
 
     offspring_1 = extend_offspring(offspring=offspring_1,
-                                   parent=ind1,
                                    x_parent=ind2,
                                    cutoff_point=cutoff_point,
-                                   offset=offset_1,
                                    x_offset=offset_2)
 
-
     offspring_2 = extend_offspring(offspring=offspring_2,
-                                   parent=ind2,
                                    x_parent=ind1,
                                    cutoff_point=cutoff_point,
-                                   offset=offset_2,
                                    x_offset=offset_1)
 
     offspring1 = creator.Individual()
@@ -208,6 +201,7 @@ def custom_crossover(ind1, ind2):
         offspring2.append(e2)
 
     return offspring1, offspring2
+
 
 def get_group_ranges(ind):
     ranges = {
@@ -258,14 +252,20 @@ def mut_split_group(ind):
     if len(used_cores) == num_cores:  # no core to replace with available
         return ind
 
+    # filter cores with group-size 1
+    used_cores = [core_id for core_id in used_cores if ranges[core_id][0] != ranges[core_id][1]]
+
     core_group_to_split = random.choice(used_cores)
     unused_cores = [core_id for core_id in range(num_cores) if not ranges[core_id]]
     core_to_introduce = random.choice(unused_cores)
 
     # starting = random.randint(ranges[core_group_to_split], ranges[core_group_to_split] + 1) maybe random also possible
-    new_starting = math.floor(
-        (ranges[core_group_to_split][0] + ranges[core_group_to_split][1] + 1) / 2
+    new_starting = random.randint(ranges[core_group_to_split][0] + 1, ranges[core_group_to_split][1])
+    '''
+    math.floor(
+        (ranges[core_group_to_split][0] + ranges[core_group_to_split][1] + 1) / 2 #replace by random
     )  # if core was just used once, in 1 stage, it will be just replaced
+    '''
 
     for idx in range(new_starting, ranges[core_group_to_split][1] + 1):
         ind[idx] = core_to_introduce
@@ -386,9 +386,8 @@ while time.time() - st < 10:  # 60 * 60 * (24 + 18):  # 60*60*24: # run 1 day
         if not b:
             print(v)
 
-
 print(counter)
-#for ind in population[:10]:
+# for ind in population[:10]:
 #    print(ind)
 print("time: ", time.time() - st)
 # print(hof.keys)
