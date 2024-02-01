@@ -7,7 +7,7 @@ import psutil
 import tensorflow as tf
 from tqdm import tqdm
 
-NUM_TEST_DATA = 1000
+NUM_TEST_DATA = 10_000
 
 def get_data(model):
     if model == "VGG":
@@ -187,7 +187,6 @@ def main(data, assignments, model):
     return results, acc_counter / len(y_test), et, avg_latency
 
 
-'''
 def run_two_split_model(data, core_aff, type_):
     psutil.Process().cpu_affinity([core_aff])
 
@@ -195,15 +194,14 @@ def run_two_split_model(data, core_aff, type_):
     y_test = data[1]
 
     # init interpreter
-    if type_ == "tflite":
-        conv_base_interpreter = tf.lite.Interpreter(
-            "vgg_partial_model/vgg_conv_base_model/conv_base_model.tflite"
-        )
-        conv_base_interpreter.allocate_tensors()
-        extension_interpreter = tf.lite.Interpreter(
-            "vgg_partial_model/vgg_extension_model/extension_model.tflite"
-        )
-        extension_interpreter.allocate_tensors()
+    conv_base_interpreter = tf.lite.Interpreter(
+        "vgg_partial_model/vgg_conv_base_model/conv_base_model.tflite"
+    )
+    conv_base_interpreter.allocate_tensors()
+    extension_interpreter = tf.lite.Interpreter(
+        "vgg_partial_model/vgg_extension_model/extension_model.tflite"
+    )
+    extension_interpreter.allocate_tensors()
 
     outputs = []
     acc_counter = 0
@@ -212,24 +210,13 @@ def run_two_split_model(data, core_aff, type_):
     with tqdm(total=len(x_test)) as bar:
         for x in x_test:
             latencies.append(time.time())
-
-            if type_ == "keras":
-
-                output = conv_base_model(x)
-
-                output_reshaped = np.reshape(output, newshape=(1, 512))
-
-                final_output = extension_model(output_reshaped)
-            elif type_ == "tflite":
-                conv_base_interpreter.set_tensor(conv_base_interpreter.get_input_details()[0]["index"], x)
-                conv_base_interpreter.invoke()
-                output = conv_base_interpreter.get_tensor(conv_base_interpreter.get_output_details()[0]["index"])
-                output_reshaped = np.reshape(output, newshape=(1, 512))
-                extension_interpreter.set_tensor(extension_interpreter.get_input_details()[0]["index"], output_reshaped)
-                extension_interpreter.invoke()
-                final_output = extension_interpreter.get_tensor(extension_interpreter.get_output_details()[0]["index"])
-            else:
-                raise RuntimeError("invalid 'type_'")
+            conv_base_interpreter.set_tensor(conv_base_interpreter.get_input_details()[0]["index"], x)
+            conv_base_interpreter.invoke()
+            output = conv_base_interpreter.get_tensor(conv_base_interpreter.get_output_details()[0]["index"])
+            output_reshaped = np.reshape(output, newshape=(1, 512))
+            extension_interpreter.set_tensor(extension_interpreter.get_input_details()[0]["index"], output_reshaped)
+            extension_interpreter.invoke()
+            final_output = extension_interpreter.get_tensor(extension_interpreter.get_output_details()[0]["index"])
 
             latencies[-1] = time.time() - latencies[-1]
             outputs += [final_output]
@@ -243,12 +230,12 @@ def run_two_split_model(data, core_aff, type_):
             acc_counter += 1
 
     return acc_counter / len(x_test), exec_time, np.mean(latencies)
-'''
 
 
 def func1(data, assignments, model):
     # run .tflite interpreter split
     result, accuracy, exec_time, avg_latency = main(data, assignments, model)
+    print(assignments)
     print("multi-interpreter .tflite exec.time: ", exec_time)
     print("multi-interpreter .tflite accuracy: ", accuracy)
     print("multi-interpreter .tflite avg_latency: ", avg_latency)
@@ -270,16 +257,16 @@ def func3():
     print("full keras models accuracy: ", acc)
     print("full keras models exec.time: ", exec_time)
     print("full keras models avg_latencies: ", avg_latency)
+'''
 
-
-def func4():
+def func4(data, assignment, model):
     # run full model_interpreters .tflite
     acc, exec_time, avg_latency = run_two_split_model(data, 0, "tflite")
     print("full tflite interpreters accuracy: ", acc)
     print("full tflite interpreters exec.time: ", exec_time)
     print("full tflite interpreters avg_latencies: ", avg_latency)
 
-
+'''
 def func5():
     # run full models .keras (tf in-build predicts and evaluates)
     print("use tensorflow inbuild predict function")
@@ -290,10 +277,9 @@ def func5():
 '''
 
 
-def wrapper(data, assignment, model):
-    # funcs = [func1, func2, func3, func4, func5]
-    # funcs[i]()
-    func1(data, assignment, model)
+def wrapper(data, assignment, model, function_idx=0):
+    funcs = [func1, func4]#, func3, func4, func5]
+    funcs[i](data, assignment, model)
 
 
 def get_active_core_range(ind, core_id, num_stages):
@@ -343,4 +329,4 @@ if __name__ == "__main__":
 
     assignment = ind_to_assignment(individual)
 
-    wrapper(data, assignment, model)
+    wrapper(data, assignment, model, function_idx=i)
