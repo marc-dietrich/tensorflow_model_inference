@@ -9,7 +9,7 @@ from deap import base, creator, tools, algorithms
 from ordered_set import OrderedSet
 
 # Define the problem
-creator.create("Fitness", base.Fitness, weights=(-1.0, -1.0, -1.0, -1.0))
+creator.create("Fitness", base.Fitness, weights=(-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0))
 creator.create("Individual", list, fitness=creator.Fitness)
 
 memoization_cache = {}
@@ -57,6 +57,20 @@ def create_population(amount, num_cores, num_stages):
     return population
 
 
+def get_core_types(ind):
+    ind_ = sorted(ind)
+    e_cores = [core for core in ind_ if 16 <= core <= 31]
+    p_cores = [core for core in ind_ if 0 <= core <= 15]
+    ht_count = 0
+    #print(ind_)
+    #print(p_cores)
+    for core, next_core in zip(p_cores, p_cores[1:]):
+        #print(core, next_core)
+        if core == next_core - 1 and core % 2 == 0:
+            ht_count += 1
+    return len(e_cores), len(p_cores) - 2 * ht_count, ht_count
+
+
 def run_main_script(ind):
     # Define the path to your shell script
     script_path = './measure.sh'
@@ -91,6 +105,8 @@ def run_main_script(ind):
     except subprocess.CalledProcessError as e:
         print(f"Error: {e}")
 
+    e_cores, st_cores, ht_cores = get_core_types(ind)
+    values += [e_cores, st_cores, ht_cores]
     print(values)
     return tuple(values)
 
@@ -102,13 +118,18 @@ def evaluate(individual):
     if tup in memoization_cache:
         return memoization_cache[tup]
 
-    exec_time, accuracy, latency, package_energy, cpu_energy = run_main_script(individual)
-    # exec_time, accuracy, latency, package_energy, cpu_energy = (
-    #    random.random(), random.random(), random.random(), random.random(), random.random())
+    exec_time, accuracy, latency, package_energy, cpu_energy, e_cores, st_cores, ht_cores = run_main_script(individual)
+    #exec_time, accuracy, latency, package_energy, cpu_energy, e_cores, st_cores, ht_cores = (
+    #    random.random(), random.random(), random.random(), random.random(), random.random(), random.random(),
+    #    random.random(), random.random())
 
-    memoization_cache[tup] = (exec_time, latency, package_energy, cpu_energy)
+    memoization_cache[tup] = (exec_time, latency, package_energy, cpu_energy, e_cores, st_cores, ht_cores)
 
-    return exec_time, latency, package_energy, cpu_energy
+    #e_cores, st_cores, ht_cores = get_core_types(ind)
+    #print(sorted(ind))
+    #print(e_cores, st_cores, ht_cores)
+
+    return exec_time, latency, package_energy, cpu_energy, e_cores, st_cores, ht_cores
 
 
 def consecutive_order_crossover(ind1, ind2):
@@ -133,7 +154,7 @@ def extend_offspring_by_group_structure(offspring, x_parent, cutoff_point, x_off
     # focus now one 1 child:
     # delete cores, that are already used on corresponding fixed-child-part
     used_cores_in_x_parent -= OrderedSet(offspring)
-    #print("filtered collection of cores in x_parent: ", used_cores_in_x_parent)
+    # print("filtered collection of cores in x_parent: ", used_cores_in_x_parent)
 
     # receive pattern of opposite parent
     collected_appearances = {}
@@ -142,7 +163,7 @@ def extend_offspring_by_group_structure(offspring, x_parent, cutoff_point, x_off
             collected_appearances[core_id] = 1
         else:
             collected_appearances[core_id] += 1
-    #print("collected appearances: ", collected_appearances)
+    # print("collected appearances: ", collected_appearances)
 
     # insert cores in collected order and cardinalities of received pattern
     # not sure whether order is maintained, if iteration is done with .values() --> .items() should maintain it
@@ -172,26 +193,26 @@ def extend_offsprings_by_offsets(offspring_1, offspring_2, offset_1, offset_2, c
 
 def custom_crossover(ind1, ind2):
     # get cutoff point
-    cutoff_point = 7 #random.randint(1, len(ind1) - 1)
+    cutoff_point = random.randint(1, len(ind1) - 1)
 
     # get fixed part of childs # offsets
     offspring_1, offset_1 = get_fixed_offspring_part(cutoff_point, ind1)
     offspring_2, offset_2 = get_fixed_offspring_part(cutoff_point, ind2)
 
-    #print("offsets: ", offset_1, offset_2, "\n")
+    # print("offsets: ", offset_1, offset_2, "\n")
 
     offspring_1, offspring_2 = extend_offsprings_by_offsets(offspring_1, offspring_2, offset_1, offset_2, cutoff_point)
 
-    #print(offspring_1, offspring_2)
+    # print(offspring_1, offspring_2)
 
-    #print("##############################")
+    # print("##############################")
 
     offspring_1 = extend_offspring_by_group_structure(offspring=offspring_1,
                                                       x_parent=ind2,
                                                       cutoff_point=cutoff_point,
                                                       x_offset=offset_2)
 
-    #print("##############################")
+    # print("##############################")
 
     offspring_2 = extend_offspring_by_group_structure(offspring=offspring_2,
                                                       x_parent=ind1,
@@ -414,7 +435,7 @@ with open(f"{csv_file_name}_{timestamp}.csv", 'w', newline='') as csvfile:
     csv_writer = csv.writer(csvfile)
 
     # Write header
-    header = ['exec_time', "avg_latency", 'package_energy', 'cpu_energy', 'Solutions']  # Adjust as needed
+    header = ['exec_time', "avg_latency", 'package_energy', 'cpu_energy', 'e_cores', 'st_cores', 'ht_cores', 'Solutions']  # Adjust as needed
     csv_writer.writerow(header)
 
     # Write solutions and fitness values
