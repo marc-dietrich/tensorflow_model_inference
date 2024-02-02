@@ -121,12 +121,11 @@ def get_fixed_offspring_part(cutoff_point, ind):
     continuation_element = child[-1]
     for core_id in ind[cutoff_point:]:
         if core_id == continuation_element:
-            child.append(core_id)
             child_offset += 1
     return child, child_offset
 
 
-def extend_offspring(offspring, x_parent, cutoff_point, x_offset):
+def extend_offspring_by_group_structure(offspring, x_parent, cutoff_point, x_offset):
     # collect all cores, used in x_parent: starting to collect from cutoff-point and then iter over x_parent
     used_cores_in_x_parent = OrderedSet(x_parent[cutoff_point + x_offset:] + x_parent[:cutoff_point + x_offset])
     # print("collection of all cores in 2nd parts: ", used_cores_in_second_parts)
@@ -134,7 +133,7 @@ def extend_offspring(offspring, x_parent, cutoff_point, x_offset):
     # focus now one 1 child:
     # delete cores, that are already used on corresponding fixed-child-part
     used_cores_in_x_parent -= OrderedSet(offspring)
-    # print("filtered collection of cores in 2nd parts: ", used_cores_in_second_parts)
+    #print("filtered collection of cores in x_parent: ", used_cores_in_x_parent)
 
     # receive pattern of opposite parent
     collected_appearances = {}
@@ -143,55 +142,61 @@ def extend_offspring(offspring, x_parent, cutoff_point, x_offset):
             collected_appearances[core_id] = 1
         else:
             collected_appearances[core_id] += 1
-    # print("collected appearances: ", collected_appearances)
+    #print("collected appearances: ", collected_appearances)
 
     # insert cores in collected order and cardinalities of received pattern
     # not sure whether order is maintained, if iteration is done with .values() --> .items() should maintain it
     counter = 0
     for _, cardinality in collected_appearances.items():
-        for _ in range(cardinality):
-            if len(offspring) == num_stages:
-                break
-            if counter == len(used_cores_in_x_parent):
-                break
-            offspring += [used_cores_in_x_parent[counter]]
-            counter += 1
-
-    # fill offspring if needed
-    while len(offspring) < num_stages:
-        # check if cores still available
         unused_cores = list(set(range(num_cores)) - set(offspring))
-        if unused_cores:
-            # used existing-unused core
-            new_core = random.choice(unused_cores)
-        else:
-            # used artificial placeholder-core_id
-            # num_stages is the upper ceiling of required additional values
-            new_core = random.randint(num_cores, num_stages)
-        offspring.append(new_core)
+        for _ in range(cardinality):
+            if counter < len(used_cores_in_x_parent):
+                new_core = used_cores_in_x_parent[counter]
+            elif unused_cores:
+                # used existing-unused core
+                new_core = random.choice(unused_cores)
+            else:
+                # used artificial placeholder-core_id
+                # num_stages is the upper ceiling of required additional values
+                new_core = random.randint(num_cores, num_stages)
+            offspring += [new_core]
+        counter += 1
 
     return offspring
 
 
+def extend_offsprings_by_offsets(offspring_1, offspring_2, offset_1, offset_2, cutoff_point):
+    return (offspring_1 + [offspring_1[-1] for _ in range(offset_2)],
+            offspring_2 + [offspring_2[-1] for _ in range(offset_1)])
+
+
 def custom_crossover(ind1, ind2):
     # get cutoff point
-    cutoff_point = random.randint(1, len(ind1) - 1)
+    cutoff_point = 7 #random.randint(1, len(ind1) - 1)
 
     # get fixed part of childs # offsets
     offspring_1, offset_1 = get_fixed_offspring_part(cutoff_point, ind1)
     offspring_2, offset_2 = get_fixed_offspring_part(cutoff_point, ind2)
 
-    # print("offsets: ", offset_1, offset_2, "\n")
+    #print("offsets: ", offset_1, offset_2, "\n")
 
-    offspring_1 = extend_offspring(offspring=offspring_1,
-                                   x_parent=ind2,
-                                   cutoff_point=cutoff_point,
-                                   x_offset=offset_2)
+    offspring_1, offspring_2 = extend_offsprings_by_offsets(offspring_1, offspring_2, offset_1, offset_2, cutoff_point)
 
-    offspring_2 = extend_offspring(offspring=offspring_2,
-                                   x_parent=ind1,
-                                   cutoff_point=cutoff_point,
-                                   x_offset=offset_1)
+    #print(offspring_1, offspring_2)
+
+    #print("##############################")
+
+    offspring_1 = extend_offspring_by_group_structure(offspring=offspring_1,
+                                                      x_parent=ind2,
+                                                      cutoff_point=cutoff_point,
+                                                      x_offset=offset_2)
+
+    #print("##############################")
+
+    offspring_2 = extend_offspring_by_group_structure(offspring=offspring_2,
+                                                      x_parent=ind1,
+                                                      cutoff_point=cutoff_point,
+                                                      x_offset=offset_1)
 
     offspring1 = creator.Individual()
     offspring2 = creator.Individual()
@@ -199,6 +204,9 @@ def custom_crossover(ind1, ind2):
     for e1, e2 in zip(offspring_1, offspring_2):
         offspring1.append(e1)
         offspring2.append(e2)
+
+    assert len(offspring1) == num_stages
+    assert len(offspring2) == num_stages
 
     return offspring1, offspring2
 
@@ -254,6 +262,9 @@ def mut_split_group(ind):
 
     # filter cores with group-size 1
     used_cores = [core_id for core_id in used_cores if ranges[core_id][0] != ranges[core_id][1]]
+
+    if not used_cores:
+        return ind
 
     core_group_to_split = random.choice(used_cores)
     unused_cores = [core_id for core_id in range(num_cores) if not ranges[core_id]]
