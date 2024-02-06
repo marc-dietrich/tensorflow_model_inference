@@ -9,7 +9,7 @@ from deap import base, creator, tools, algorithms
 from ordered_set import OrderedSet
 
 # Define the problem
-creator.create("Fitness", base.Fitness, weights=(-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0))
+creator.create("Fitness", base.Fitness, weights=(-1.0, -1.0, -1.0, -1.0, -1.0, -1.0))
 creator.create("Individual", list, fitness=creator.Fitness)
 
 memoization_cache = {}
@@ -129,7 +129,7 @@ def evaluate(individual):
     #print(sorted(ind))
     #print(e_cores, st_cores, ht_cores)
 
-    return exec_time, latency, package_energy, cpu_energy, e_cores, st_cores, ht_cores
+    return exec_time, latency, package_energy, e_cores, st_cores, ht_cores
 
 
 def consecutive_order_crossover(ind1, ind2):
@@ -435,7 +435,7 @@ with open(f"{csv_file_name}_{timestamp}.csv", 'w', newline='') as csvfile:
     csv_writer = csv.writer(csvfile)
 
     # Write header
-    header = ['exec_time', "avg_latency", 'package_energy', 'cpu_energy', 'e_cores', 'st_cores', 'ht_cores', 'Solutions']  # Adjust as needed
+    header = ['exec_time', "avg_latency", 'package_energy', 'e_cores', 'st_cores', 'ht_cores', 'Solutions']  # Adjust as needed
     csv_writer.writerow(header)
 
     # Write solutions and fitness values
