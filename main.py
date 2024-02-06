@@ -2,15 +2,19 @@ import argparse
 import multiprocessing
 import time
 
+import keras
 import numpy as np
 import psutil
 import tensorflow as tf
 from tqdm import tqdm
 
-NUM_TEST_DATA = 10_000
+NUM_TEST_DATA = 32 * 300  # 10_000
+
+model = None
+
 
 def get_data(model):
-    if model == "VGG":
+    if model == "VGG" or model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
         x_train = np.load("./mnist_dataset/train.npz")["arr_0"]
         y_train = np.load("./mnist_dataset/train.npz")["arr_1"]
 
@@ -32,7 +36,10 @@ def get_data(model):
     else:
         raise RuntimeError("wrong model")
 
-    x_test = [x[None, :, :, :] for x in x_test]
+    if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
+        pass
+    else:
+        x_test = [x[None, :, :, :] for x in x_test]
 
     return x_test[:NUM_TEST_DATA], y_test[:NUM_TEST_DATA]
 
@@ -41,6 +48,9 @@ def get_interpreters(partial_model_dir_path, model_name, size):
     interpreters = []
     for i in range(size):
         interpreter = tf.lite.Interpreter(partial_model_dir_path + "/" + model_name + "_" + str(i) + ".tflite")
+        if model == "VGG_BATCH_TFLITE":
+            shape = interpreter.get_input_details()[0]["shape"]
+            interpreter.resize_tensor_input(0, [32] + list(shape)[1:])
         interpreter.allocate_tensors()
         interpreters.append(interpreter)
     return interpreters
@@ -60,6 +70,20 @@ def init_interpreters():
 
 
 interpreters = init_interpreters()
+
+
+def get_partial_model():
+    partial_model_ = []
+    conv_base = keras.models.load_model("vgg_partial_model/vgg_conv_base_model/conv_base_model.keras")
+    for n in range(19):
+        partial_model_ += [keras.Model(inputs=conv_base.layers[n].input, outputs=conv_base.layers[n].output)]
+    extension = keras.models.load_model("vgg_partial_model/vgg_extension_model/extension_model.keras")
+    for n in range(4):
+        partial_model_ += [keras.Model(inputs=extension.layers[n].input, outputs=extension.layers[n].output)]
+    return partial_model_
+
+
+partial_model = get_partial_model()
 
 
 def invoke_vgg_model_interpreters(stage, input_):
@@ -83,9 +107,35 @@ def invoke_alex_net_model_interpreters(stage, input_, interpreter):
     return output, et
 
 
+def invoke_vgg_partial_model(stage, input_):
+    interpreter = interpreters[stage]
+    st = time.time()
+    if stage == 19:
+        input_ = np.reshape(input_, newshape=(32, 512))
+    layer = partial_model[stage]
+    output = layer.predict(input_, verbose=0)
+    # output = layer(input_)
+    et = time.time() - st
+    return output, et
+
+
+def invoke_vgg_model_interpreters_with_batches(stage, input_):
+    interpreter = interpreters[stage]
+    st = time.time()
+    if stage == 19:
+        input_ = np.reshape(input_, newshape=(32, 512))
+    interpreter.set_tensor(0, input_)
+    interpreter.invoke()
+    output = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
+    et = time.time() - st
+    return output, et
+
+
 interpreter_invoke_funcs = {
+    "VGG_keras": invoke_vgg_partial_model,
     "VGG": invoke_vgg_model_interpreters,
     "ALEX_NET": invoke_alex_net_model_interpreters,
+    "VGG_BATCH_TFLITE": invoke_vgg_model_interpreters_with_batches,
 }
 
 
@@ -114,16 +164,30 @@ def assignment_worker(in_queue, out_queue, assignment, core_id, latencies, model
             # otherwise ... using single thread is faster than piepline parallelism (probably due to memory overhead)
             data = data * 2  # Example processing
             '''
-            #print(stage, data, model)
-            #print(np.shape(data))
+            # print(stage, data, model)
+            # print(np.shape(data))
             data, et = run_stage(stage, data, model)
-            latencies[stage * NUM_TEST_DATA + counter] = et
+            latencies[stage * NUM_TEST_DATA // 32 + counter] = et
         counter += 1
         out_queue.put(data)
 
 
+def fill_queue(queue, x_test, model):
+    if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
+        num_splits = x_test.shape[0] // 32
+
+        # Use np.split to perform the split
+        split_arrays = np.split(x_test, num_splits, axis=0)
+        for data in split_arrays:
+            # print(data.shape)
+            queue.put(data)
+    else:
+        for item in x_test:
+            queue.put(item)
+
+
 def main(data, assignments, model):
-    if model == "VGG":
+    if model == "VGG" or model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
         num_stages = 23
     elif model == "ALEX_NET":
         num_stages = 21
@@ -132,9 +196,12 @@ def main(data, assignments, model):
 
     # Create queues for communication between stages
     queues = [multiprocessing.Queue() for _ in range(len(assignments) + 1)]
-    latencies = multiprocessing.Array('d', NUM_TEST_DATA * num_stages)
+    if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
+        latencies = multiprocessing.Array('d', NUM_TEST_DATA // 32 * num_stages)
+    else:
+        latencies = multiprocessing.Array('d', NUM_TEST_DATA * num_stages)
 
-    #print(assignments)
+    # print(assignments)
 
     # Create processes for each stage
     processes = [
@@ -151,8 +218,7 @@ def main(data, assignments, model):
 
     # Input data to the first stage
     x_test = data[0]
-    for item in x_test:
-        queues[0].put(item)
+    fill_queue(queues[0], x_test, model)
 
     # Signal the end of input by sending None through the queue
     queues[0].put(None)
@@ -164,8 +230,14 @@ def main(data, assignments, model):
             result = queues[-1].get()
             if result is None:
                 break
-            results.append(result)
-            bar.update()
+            if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
+                # print(result, type(result), result.shape)
+                results += result.tolist()
+                bar.update(32)
+            else:
+                results.append(result)
+                bar.update()
+
         bar.close()
         et = time.time() - st
 
@@ -180,8 +252,12 @@ def main(data, assignments, model):
         if np.argmax(result) == y:
             acc_counter += 1
 
-    latencies_ = [np.sum([latencies[stage * NUM_TEST_DATA + counter] for stage in range(num_stages)])
-                  for counter in range(NUM_TEST_DATA)]
+    if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
+        latencies_ = [np.sum([latencies[stage * NUM_TEST_DATA // 32 + counter] for stage in range(num_stages)])
+                      for counter in range(NUM_TEST_DATA // 32)]
+    else:
+        latencies_ = [np.sum([latencies[stage * NUM_TEST_DATA + counter] for stage in range(num_stages)])
+                      for counter in range(NUM_TEST_DATA)]
     avg_latency = np.mean(latencies_)
 
     return results, acc_counter / len(y_test), et, avg_latency
@@ -259,12 +335,14 @@ def func3():
     print("full keras models avg_latencies: ", avg_latency)
 '''
 
+
 def func4(data, assignment, model):
     # run full model_interpreters .tflite
     acc, exec_time, avg_latency = run_two_split_model(data, 0, "tflite")
     print("full tflite interpreters accuracy: ", acc)
     print("full tflite interpreters exec.time: ", exec_time)
     print("full tflite interpreters avg_latencies: ", avg_latency)
+
 
 '''
 def func5():
@@ -278,7 +356,7 @@ def func5():
 
 
 def wrapper(data, assignment, model, function_idx=0):
-    funcs = [func1, func4]#, func3, func4, func5]
+    funcs = [func1, func4]  # , func3, func4, func5]
     funcs[i](data, assignment, model)
 
 
@@ -314,7 +392,8 @@ if __name__ == "__main__":
     # print(tf.__version__)
 
     parser = argparse.ArgumentParser(description="Pipeline Parallelism")
-    parser.add_argument("-ind", "--individual", nargs='+', type=int, help="Assignment of cores to stages", required=True)
+    parser.add_argument("-ind", "--individual", nargs='+', type=int, help="Assignment of cores to stages",
+                        required=True)
     parser.add_argument("-i", "--index", type=int, help="Index for certain benchmark", required=True)
     parser.add_argument("-m", "--model", type=str, help="Model (VGG OR ALEX_NET)", required=True)
     args = parser.parse_args()
