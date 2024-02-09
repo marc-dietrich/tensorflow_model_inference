@@ -8,7 +8,8 @@ import psutil
 import tensorflow as tf
 from tqdm import tqdm
 
-NUM_TEST_DATA = 32 * 300  # 10_000
+BATCH_SIZE = 32
+NUM_TEST_DATA = BATCH_SIZE * (10_000 // BATCH_SIZE)
 
 model = None
 
@@ -50,7 +51,7 @@ def get_interpreters(partial_model_dir_path, model_name, size):
         interpreter = tf.lite.Interpreter(partial_model_dir_path + "/" + model_name + "_" + str(i) + ".tflite")
         if model == "VGG_BATCH_TFLITE":
             shape = interpreter.get_input_details()[0]["shape"]
-            interpreter.resize_tensor_input(0, [32] + list(shape)[1:])
+            interpreter.resize_tensor_input(0, [BATCH_SIZE] + list(shape)[1:])
         interpreter.allocate_tensors()
         interpreters.append(interpreter)
     return interpreters
@@ -111,7 +112,7 @@ def invoke_vgg_partial_model(stage, input_):
     interpreter = interpreters[stage]
     st = time.time()
     if stage == 19:
-        input_ = np.reshape(input_, newshape=(32, 512))
+        input_ = np.reshape(input_, newshape=(BATCH_SIZE, 512))
     layer = partial_model[stage]
     output = layer.predict(input_, verbose=0)
     # output = layer(input_)
@@ -123,7 +124,7 @@ def invoke_vgg_model_interpreters_with_batches(stage, input_):
     interpreter = interpreters[stage]
     st = time.time()
     if stage == 19:
-        input_ = np.reshape(input_, newshape=(32, 512))
+        input_ = np.reshape(input_, newshape=(BATCH_SIZE, 512))
     interpreter.set_tensor(0, input_)
     interpreter.invoke()
     output = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
@@ -167,14 +168,14 @@ def assignment_worker(in_queue, out_queue, assignment, core_id, latencies, model
             # print(stage, data, model)
             # print(np.shape(data))
             data, et = run_stage(stage, data, model)
-            latencies[stage * NUM_TEST_DATA // 32 + counter] = et
+            latencies[stage * NUM_TEST_DATA // BATCH_SIZE + counter] = et
         counter += 1
         out_queue.put(data)
 
 
 def fill_queue(queue, x_test, model):
     if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
-        num_splits = x_test.shape[0] // 32
+        num_splits = x_test.shape[0] // BATCH_SIZE
 
         # Use np.split to perform the split
         split_arrays = np.split(x_test, num_splits, axis=0)
@@ -197,7 +198,7 @@ def main(data, assignments, model):
     # Create queues for communication between stages
     queues = [multiprocessing.Queue() for _ in range(len(assignments) + 1)]
     if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
-        latencies = multiprocessing.Array('d', NUM_TEST_DATA // 32 * num_stages)
+        latencies = multiprocessing.Array('d', NUM_TEST_DATA // BATCH_SIZE * num_stages)
     else:
         latencies = multiprocessing.Array('d', NUM_TEST_DATA * num_stages)
 
@@ -233,7 +234,7 @@ def main(data, assignments, model):
             if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
                 # print(result, type(result), result.shape)
                 results += result.tolist()
-                bar.update(32)
+                bar.update(BATCH_SIZE)
             else:
                 results.append(result)
                 bar.update()
@@ -253,8 +254,8 @@ def main(data, assignments, model):
             acc_counter += 1
 
     if model == "VGG_keras" or model == "VGG_BATCH_TFLITE":
-        latencies_ = [np.sum([latencies[stage * NUM_TEST_DATA // 32 + counter] for stage in range(num_stages)])
-                      for counter in range(NUM_TEST_DATA // 32)]
+        latencies_ = [np.sum([latencies[stage * NUM_TEST_DATA // BATCH_SIZE + counter] for stage in range(num_stages)])
+                      for counter in range(NUM_TEST_DATA // BATCH_SIZE)]
     else:
         latencies_ = [np.sum([latencies[stage * NUM_TEST_DATA + counter] for stage in range(num_stages)])
                       for counter in range(NUM_TEST_DATA)]
