@@ -99,7 +99,7 @@ if __name__ == '__main__':
                 st_ = time.time()
                 exec_time, package_energy = run_eval_predict_script(core_affinities)
                 script_exec_time = time.time() - st_
-                print(exec_time, package_energy, e_cores, p_s_cores, p_h_cores)
+                print(exec_time, script_exec_time, package_energy, e_cores, p_s_cores, p_h_cores)
 
                 write_to_file(exec_time, script_exec_time, package_energy, e_cores, p_s_cores, p_h_cores, time_stamp)
 

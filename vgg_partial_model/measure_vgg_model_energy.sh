@@ -12,7 +12,11 @@ cpu-energy-meter -r &
 PID=$!
 
 # Call the Python script with parameters
-python eval_saved_model.py --core_affinities "$CORE_AFFINITIES"
+output=$(python eval_saved_model.py --core_affinities "$CORE_AFFINITIES")
+
+
+captured_line_exec_time = $(echo "$output" | grep "exec_time")
+echo "$captured_line_exec_time"
 
 # Send SIGINT signal to cpu-energy-meter
 kill -SIGINT $PID
