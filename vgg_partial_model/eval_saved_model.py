@@ -74,7 +74,7 @@ if __name__ == "__main__":
     inter_results = np.reshape(inter_results, (num_samples, 1 * 1 * 512))
 
     results = ext_model.evaluate(inter_results, y_test[:num_samples])
-    print("exec. time vgg_model precict function: ", time.time() - st)
+    print("exec_time vgg_model precict function: ", time.time() - st)
 
     # final_results = ext_model.predict(inter_results)
     # print(final_results, y_test)
