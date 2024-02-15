@@ -49,9 +49,9 @@ def get_interpreters(partial_model_dir_path, model_name, size):
     interpreters = []
     for i in range(size):
         interpreter = tf.lite.Interpreter(partial_model_dir_path + "/" + model_name + "_" + str(i) + ".tflite")
-        if model == "VGG_BATCH_TFLITE":
-            shape = interpreter.get_input_details()[0]["shape"]
-            interpreter.resize_tensor_input(0, [BATCH_SIZE] + list(shape)[1:])
+        #if model == "VGG_BATCH_TFLITE":
+        shape = interpreter.get_input_details()[0]["shape"]
+        interpreter.resize_tensor_input(0, [BATCH_SIZE] + list(shape)[1:])
         interpreter.allocate_tensors()
         interpreters.append(interpreter)
     return interpreters
