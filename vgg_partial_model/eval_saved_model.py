@@ -1,5 +1,6 @@
 import argparse
 import math
+import os
 import time
 
 import numpy as np
@@ -47,9 +48,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Specify the number of CPU cores and the core affinities
-    core_affinities = args.core_affinities  # Adjust based on your system
+    core_affinities: list = args.core_affinities  # Adjust based on your system
     num_cores = len(core_affinities)
     num_samples = args.num_samples
+
+    if -1 in core_affinities:
+        core_affinities = [x for x in range(os.cpu_count())]
+        num_cores = os.cpu_count()
 
     # Set the number of intra and inter-operation threads
     tf.config.threading.set_intra_op_parallelism_threads(num_cores)
